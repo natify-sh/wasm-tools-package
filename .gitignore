@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+wheelhouse/
+*.egg-info/
+.eggs/
+
+# Environments
+.venv/
+.vscode/
+
+# Caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# build_wasm_tools.py output (built on every build from the wasm-tools submodule, shipped inside the wheel)
+src/wasm_tools_package/bin/
+src/wasm_tools_package/_wasm_tools_version.txt

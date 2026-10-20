@@ -1,0 +1,129 @@
+[build-system]
+# The Rust toolchain (cargo) is the platform's own (rustup); build_wasm_tools.py explains.
+requires = ["setuptools>=77", "setuptools-scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wasm-tools-package"
+authors = [{ name = "o-murphy", email = "thehelixpg@gmail.com" }]
+description = "wasm-tools, the Bytecode Alliance's WebAssembly toolkit (parse, print, validate, component, ...) as a prebuilt binary"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["wasm-tools", "webassembly", "wasm", "wasm-component", "wit", "wat"]
+license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+    "NOTICE.md",
+    "wasm-tools/LICENSE-APACHE",
+    "wasm-tools/LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "wasm-tools/LICENSE-MIT",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Software Development :: Compilers",
+    "Typing :: Typed",
+]
+dependencies = []
+dynamic = ["version"]
+
+[project.urls]
+"Homepage" = "https://github.com/natify-sh/wasm-tools-package"
+"Bug Reports" = "https://github.com/natify-sh/wasm-tools-package/issues"
+"Source" = "https://github.com/natify-sh/wasm-tools-package"
+"wasm-tools" = "https://github.com/bytecodealliance/wasm-tools"
+
+# The console script runs the bundled executable of the same name.
+[project.scripts]
+wasm-tools = "wasm_tools_package._cli:wasm_tools"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["wasm_tools_package"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+# Built by build_wasm_tools.py into src/wasm_tools_package/ (gitignored) and shipped inside the wheel.
+wasm_tools_package = ["bin/*", "_wasm_tools_version.txt", "py.typed"]
+
+[tool.setuptools_scm]
+# The package version is the wasm-tools version plus a build number: tag `v1.262.0.0` is wasm-tools 1.262.0, build 0.
+# Until the repo has a tag (or no git at all), there is nothing to derive a version from.
+root = "."
+fallback_version = "0.0.0.dev0"
+
+[tool.uv]
+# Rebuild the editable install (and so wasm-tools) when the build hooks or the submodule change, not only
+# when pyproject.toml does.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "setup.py" },
+    { file = "build_wasm_tools.py" },
+    { file = "wasm-tools/Cargo.toml" },
+    { file = "wasm-tools/Cargo.lock" },
+    { git = { commit = true } },
+]
+
+[tool.cibuildwheel]
+# Use uv and build
+build-frontend = "build[uv]"
+# The wheel holds an executable, not a Python extension: setup.py tags it py3-none-<platform>, so it does not
+# depend on the interpreter. One interpreter per platform (and per manylinux/musllinux flavour) is enough.
+build = "cp312-*"
+# rustup has no toolchain for musl on i686 and armv7l, and Alpine's own cargo is older than the 1.88 that wasm-tools needs.
+skip = ["*-musllinux_i686", "*-musllinux_armv7l"]
+test-requires = "pytest"
+# cibuildwheel runs tests from a scratch directory (not the repo checkout) so only the built
+# wheel's contents are ever imported - {project} is substituted with the repo root so pytest can
+# still find the test suite itself (tests/ isn't part of the wheel).
+test-command = "pytest {project}/tests"
+
+[tool.cibuildwheel.linux]
+# The manylinux/musllinux images carry no Rust: rustup puts a minimal toolchain (cargo, rustc) in ~/.cargo.
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+
+[tool.cibuildwheel.macos]
+# 11.0 is the floor of arm64 macOS; x86_64 is built on its own runner (plus a universal2 wheel from the arm64 runner).
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.pytest.ini_options]
+minversion = "9"
+addopts = "-rf"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+# wasm-tools/ is the upstream submodule, not ours to format.
+extend-exclude = ["wasm-tools"]
+
+[tool.ruff.lint]
+ignore = []
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["wasm-tools", "build"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.2",
+    "pyright>=1.1.400",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.0",
+    "setuptools>=77",
+    "setuptools-scm>=8",
+    "wheel",
+]

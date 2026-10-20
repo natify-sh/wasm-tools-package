@@ -1,0 +1,71 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - "main"
+    paths: &code-paths
+      - "pyproject.toml"
+      - "setup.py"
+      - "build_wasm_tools.py"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/coverage.yml"
+  pull_request:
+    branches:
+      - "*"
+    paths: *code-paths
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      # A job-level block replaces the defaults wholesale: every scope not listed here
+      # becomes `none`, so contents must be granted explicitly for actions/checkout.
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # required for setuptools-scm
+          submodules: true # wasm-tools (not recursive: its own submodules are only the test suites)
+
+      # cargo and rustup are on the GitHub-hosted runners; Rust is the platform's own toolchain.
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.14"
+          github-token: ${{ github.token }}
+
+      # Builds wasm-tools (build_wasm_tools.py) as part of the editable install, so the tests find the executable.
+      - name: Install the project
+        run: uv sync
+        shell: bash
+
+      - name: Run tests with coverage
+        run: >
+          uv run pytest
+          --cov=wasm_tools_package
+          --cov-report=xml
+          --cov-report=term
+        shell: bash
+
+      # Fork PRs are capped at a read-only GITHUB_TOKEN no matter what the permissions
+      # block above asks for, so id-token: write is never granted and the OIDC handshake
+      # fails. Tests + the term report still run there; only the upload is skipped.
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: ./coverage.xml
+          fail_ci_if_error: true
