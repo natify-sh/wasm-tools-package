@@ -23,8 +23,8 @@ wasm-tools validate add.wasm
 
 ## What is in it
 
-|            |                                                                                                                                                      |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| | |
+|---|---|
 | executable | `wasm-tools`, with all its subcommands: `parse`, `print`, `validate`, `component`, `objdump`, `dump`, `strip`, `smith`, `shrink`, `mutate`, `wast`, ... |
 
 It is a console script; `python -m wasm_tools_package parse ...` runs it without relying on `PATH`.
@@ -42,14 +42,14 @@ wasm_tools.wasm_tools_version()  # "1.262.0"
 The publish workflow builds `py3-none-<platform>` wheels (the executable does not depend on the interpreter) for the desktop platforms
 of [cibuildwheel](https://cibuildwheel.pypa.io):
 
-|                  |                               |
-| ---------------- | ----------------------------- |
+| | |
+|---|---|
 | Linux, manylinux | x86_64, aarch64, i686, armv7l |
-| Linux, musllinux | x86_64, aarch64               |
-| Windows          | x64, ARM64, x86               |
-| macOS            | arm64, x86_64, universal2     |
+| Linux, musllinux | x86_64, aarch64 |
+| Windows | x64, ARM64, x86 |
+| macOS | arm64, x86_64, universal2 |
 
-See [CHANGELOG.md](CHANGELOG.md) for what each release has. There are no wheels for Android, iOS or
+None of them needs QEMU: every architecture builds on a native runner or runs natively on it. See [CHANGELOG.md](CHANGELOG.md) for what each release has. There are no wheels for Android, iOS or
 Pyodide: the tool runs on the machine that builds, and a package for those targets is built with the wheel of the host.
 Anywhere else the sdist builds the executable from source and needs Rust 1.88 or newer (`cargo`, e.g. from [rustup](https://rustup.rs))
 and network access to crates.io.
