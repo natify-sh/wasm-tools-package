@@ -1,0 +1,94 @@
+name: Follow wasm-tools releases
+
+# One idempotent pass, repeated until nothing is left to do, so a step that failed (the merge, the tag push)
+# is retried by the next run instead of being lost:
+#   1. a bump PR is open and its checks passed -> merge it (a plain merge, no branch protection or "auto-merge"
+#      setting needed); checks failed or still running -> leave it
+#   2. main pins a wasm-tools release that has no tag v<release>.0 yet -> push the tag (publish.yml publishes it)
+#   3. no bump PR is open and a newer wasm-tools release exists -> open a PR that moves the submodule
+# Nothing is published unless the whole build matrix of the PR was green.
+#
+# Needs a secret SYNC_TOKEN (a fine-grained PAT, or a GitHub App token, with contents + pull-requests write):
+# events made with GITHUB_TOKEN do not start other workflows, so neither the PR build nor the tag push would run.
+# Without it the run fails at the first step that needs it, with a message, and nothing is half-done.
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_run:
+    workflows: ["Upload Python Package"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::secret SYNC_TOKEN is not set (see the comment at the top of this workflow)"; exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.SYNC_TOKEN }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Merge, tag, bump
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 1. a finished bump PR
+          for PR in $(gh pr list --state open --search "head:bump/wasm-tools-" --json number --jq '.[].number'); do
+            STATE=$(gh pr view "$PR" --json statusCheckRollup,mergeable --jq '
+              if (.statusCheckRollup | length) == 0 or any(.statusCheckRollup[]; .status != "COMPLETED") then "pending"
+              elif all(.statusCheckRollup[]; .conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL") then
+                (if .mergeable == "MERGEABLE" then "green" else "conflict" end)
+              else "red" end')
+            echo "PR #$PR: $STATE"
+            if [ "$STATE" = green ]; then
+              gh pr merge "$PR" --squash --delete-branch
+              git pull --ff-only origin main
+              git submodule update --init wasm-tools
+            fi
+          done
+
+          # 2. the pinned release has no package tag
+          REL=$(git -C wasm-tools describe --tags --exact-match 2>/dev/null || true)
+          if [ -n "$REL" ] && ! git rev-parse -q --verify "refs/tags/${REL}.0" >/dev/null; then
+            git tag "${REL}.0"
+            git push origin "${REL}.0"
+            echo "tagged ${REL}.0"
+          fi
+
+          # 3. a newer release and no PR in flight
+          LATEST=$(gh release view --repo bytecodealliance/wasm-tools --json tagName --jq .tagName)
+          if [ "$LATEST" != "$REL" ] && [ -z "$(gh pr list --state open --search 'head:bump/wasm-tools-' --json number --jq '.[].number')" ]; then
+            BRANCH="bump/wasm-tools-${LATEST}"
+            git -C wasm-tools fetch --depth 1 origin tag "$LATEST"
+            git -C wasm-tools checkout "$LATEST"
+            git switch -C "$BRANCH"
+            git add wasm-tools
+            git commit -m "Bump wasm-tools to ${LATEST#v}"
+            git push --force origin "$BRANCH"
+            gh pr create --base main --head "$BRANCH" \
+              --title "Bump wasm-tools to ${LATEST#v}" \
+              --body "Automatic: moves the \`wasm-tools\` submodule to \`${LATEST}\`. It is merged when the build and tests pass, and the merge is followed by the tag \`${LATEST}.0\`, which publishes."
+          fi
