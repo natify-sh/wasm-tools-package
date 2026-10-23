@@ -10,7 +10,9 @@ name: Follow wasm-tools releases
 #
 # Needs a secret SYNC_TOKEN (a fine-grained PAT, or a GitHub App token, with contents + pull-requests write):
 # events made with GITHUB_TOKEN do not start other workflows, so neither the PR build nor the tag push would run.
-# Without it the run fails at the first step that needs it, with a message, and nothing is half-done.
+# The first step checks the token (set, valid, can push, can read pull requests and checks) and fails with the
+# missing permission named, before anything is changed. Writing to pull requests cannot be probed without side effects:
+# a token that lacks it fails later, at the merge or the PR creation, with GitHub's own message.
 
 on:
   schedule:
@@ -35,10 +37,21 @@ jobs:
       - name: Check the token
         env:
           SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -z "$SYNC_TOKEN" ]; then
-            echo "::error::secret SYNC_TOKEN is not set (see the comment at the top of this workflow)"; exit 1
-          fi
+          fail() { echo "::error title=SYNC_TOKEN::$1"; exit 1; }
+          [ -n "$SYNC_TOKEN" ] || fail "the secret SYNC_TOKEN is not set: add it in Settings > Secrets and variables > Actions (a fine-grained token for $REPO with Contents, Pull requests: read and write and Checks: read; see the comment at the top of this workflow)"
+          export GH_TOKEN="$SYNC_TOKEN"
+          gh api "repos/$REPO" --jq .permissions >perms.json 2>err.txt \
+            || fail "SYNC_TOKEN cannot see $REPO (expired or revoked, or its repository access does not include it): $(cat err.txt)"
+          [ "$(jq .push perms.json)" = true ] \
+            || fail "SYNC_TOKEN cannot push to $REPO: give it Contents: read and write"
+          gh api "repos/$REPO/pulls?per_page=1" >/dev/null 2>err.txt \
+            || fail "SYNC_TOKEN cannot read pull requests of $REPO: give it Pull requests: read and write ($(cat err.txt))"
+          gh api "repos/$REPO/commits/main/check-runs?per_page=1" >/dev/null 2>err.txt \
+            || fail "SYNC_TOKEN cannot read the checks of $REPO: give it Checks: read ($(cat err.txt))"
+          echo "SYNC_TOKEN is valid for $REPO"
+          rm -f perms.json err.txt
 
       - uses: actions/checkout@v7
         with:
