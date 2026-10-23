@@ -1,0 +1,110 @@
+name: Follow wasm-tools releases
+
+# One idempotent pass, repeated until nothing is left to do, so a step that failed (the merge, the tag push)
+# is retried by the next run instead of being lost:
+#   1. a bump PR is open and its checks passed -> merge it (a plain merge, no branch protection or "auto-merge"
+#      setting needed); checks failed or still running -> leave it
+#   2. main pins a wasm-tools release that has no tag v<release>.0 yet -> push the tag (publish.yml publishes it)
+#   3. no bump PR is open and a newer wasm-tools release exists -> open a PR that moves the submodule
+# Nothing is published unless the whole build matrix of the PR was green.
+#
+# Needs a secret SYNC_TOKEN (a fine-grained PAT, or a GitHub App token, with contents + pull-requests write):
+# events made with GITHUB_TOKEN do not start other workflows, so neither the PR build nor the tag push would run.
+# The first step checks the token (set, valid, can push, can read pull requests and checks) and fails with the
+# missing permission named, before anything is changed. Writing to pull requests cannot be probed without side effects:
+# a token that lacks it fails later, at the merge or the PR creation, with GitHub's own message.
+
+on:
+  schedule:
+    - cron: "17 23 * * *"
+  workflow_run:
+    workflows: ["Upload Python Package"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          fail() { echo "::error title=SYNC_TOKEN::$1"; exit 1; }
+          [ -n "$SYNC_TOKEN" ] || fail "the secret SYNC_TOKEN is not set: add it in Settings > Secrets and variables > Actions (a fine-grained token for $REPO with Contents, Pull requests: read and write and Checks: read; see the comment at the top of this workflow)"
+          export GH_TOKEN="$SYNC_TOKEN"
+          gh api "repos/$REPO" --jq .permissions >perms.json 2>err.txt \
+            || fail "SYNC_TOKEN cannot see $REPO (expired or revoked, or its repository access does not include it): $(cat err.txt)"
+          [ "$(jq .push perms.json)" = true ] \
+            || fail "SYNC_TOKEN cannot push to $REPO: give it Contents: read and write"
+          gh api "repos/$REPO/pulls?per_page=1" >/dev/null 2>err.txt \
+            || fail "SYNC_TOKEN cannot read pull requests of $REPO: give it Pull requests: read and write ($(cat err.txt))"
+          gh api "repos/$REPO/commits/main/check-runs?per_page=1" >/dev/null 2>err.txt \
+            || fail "SYNC_TOKEN cannot read the checks of $REPO: give it Checks: read ($(cat err.txt))"
+          echo "SYNC_TOKEN is valid for $REPO"
+          rm -f perms.json err.txt
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.SYNC_TOKEN }}
+          fetch-depth: 0
+          submodules: true
+
+      - name: Merge, tag, bump
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 1. a finished bump PR
+          for PR in $(gh pr list --state open --search "head:bump/wasm-tools-" --json number --jq '.[].number'); do
+            STATE=$(gh pr view "$PR" --json statusCheckRollup,mergeable --jq '
+              if (.statusCheckRollup | length) == 0 or any(.statusCheckRollup[]; .status != "COMPLETED") then "pending"
+              elif all(.statusCheckRollup[]; .conclusion == "SUCCESS" or .conclusion == "SKIPPED" or .conclusion == "NEUTRAL") then
+                (if .mergeable == "MERGEABLE" then "green" else "conflict" end)
+              else "red" end')
+            echo "PR #$PR: $STATE"
+            if [ "$STATE" = green ]; then
+              gh pr merge "$PR" --squash --delete-branch
+              git pull --ff-only origin main
+              git submodule update --init wasm-tools
+            fi
+          done
+
+          # 2. the pinned release has no package tag
+          REL=$(git -C wasm-tools describe --tags --exact-match 2>/dev/null || true)
+          if [ -n "$REL" ] && ! git rev-parse -q --verify "refs/tags/${REL}.0" >/dev/null; then
+            git tag "${REL}.0"
+            git push origin "${REL}.0"
+            echo "tagged ${REL}.0"
+          fi
+
+          # 3. a newer release and no PR in flight
+          # the highest version, not GitHub's "latest": patch releases of older branches (v1.254.2 after v1.258.0) are published too
+          LATEST=$(gh release list --repo bytecodealliance/wasm-tools --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          NEWER=$(printf '%s\n%s\n' "$REL" "$LATEST" | sort -V | tail -n 1)
+          if [ "$LATEST" != "$REL" ] && [ "$NEWER" = "$LATEST" ] && [ -z "$(gh pr list --state open --search 'head:bump/wasm-tools-' --json number --jq '.[].number')" ]; then
+            BRANCH="bump/wasm-tools-${LATEST}"
+            git -C wasm-tools fetch --depth 1 origin tag "$LATEST"
+            git -C wasm-tools checkout "$LATEST"
+            git switch -C "$BRANCH"
+            git add wasm-tools
+            git commit -m "Bump wasm-tools to ${LATEST#v}"
+            git push --force origin "$BRANCH"
+            gh pr create --base main --head "$BRANCH" \
+              --title "Bump wasm-tools to ${LATEST#v}" \
+              --body "Automatic: moves the \`wasm-tools\` submodule to \`${LATEST}\`. It is merged when the build and tests pass, and the merge is followed by the tag \`${LATEST}.0\`, which publishes."
+          fi

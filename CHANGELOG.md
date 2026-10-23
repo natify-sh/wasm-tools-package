@@ -7,6 +7,10 @@ executable is built from plus a build number: `1.262.0.0` is wasm-tools 1.262.0,
 
 ## [Unreleased]
 
+## [1.262.0.0] - 2026-10-23
+
+First stable release (after the `1.262.0.0b1` pre-release).
+
 ### Added
 - wasm-tools 1.262.0 built from the `wasm-tools` submodule, pinned to its release tag. The `wasm-tools` executable (all its
   subcommands: `parse`, `print`, `validate`, `component`, `objdump`, `strip`, `smith`, `wast`, ...) is a console script, and
@@ -29,4 +33,5 @@ executable is built from plus a build number: `1.262.0.0` is wasm-tools 1.262.0,
 - Every wheel is checked on its platform to depend on nothing but the system (Linux: the C library and libgcc_s; macOS: only
   system libraries and no newer macOS than the wheel says; Windows: no C runtime DLLs).
 
-[Unreleased]: https://github.com/natify-sh/wasm-tools-package/commits/main
+[Unreleased]: https://github.com/natify-sh/wasm-tools-package/compare/v1.262.0.0...HEAD
+[1.262.0.0]: https://github.com/natify-sh/wasm-tools-package/releases/tag/v1.262.0.0
