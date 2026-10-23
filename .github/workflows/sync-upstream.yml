@@ -16,7 +16,7 @@ name: Follow wasm-tools releases
 
 on:
   schedule:
-    - cron: "17 */3 * * *"
+    - cron: "17 23 * * *"
   workflow_run:
     workflows: ["Upload Python Package"]
     types: [completed]
@@ -92,8 +92,11 @@ jobs:
           fi
 
           # 3. a newer release and no PR in flight
-          LATEST=$(gh release view --repo bytecodealliance/wasm-tools --json tagName --jq .tagName)
-          if [ "$LATEST" != "$REL" ] && [ -z "$(gh pr list --state open --search 'head:bump/wasm-tools-' --json number --jq '.[].number')" ]; then
+          # the highest version, not GitHub's "latest": patch releases of older branches (v1.254.2 after v1.258.0) are published too
+          LATEST=$(gh release list --repo bytecodealliance/wasm-tools --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          NEWER=$(printf '%s\n%s\n' "$REL" "$LATEST" | sort -V | tail -n 1)
+          if [ "$LATEST" != "$REL" ] && [ "$NEWER" = "$LATEST" ] && [ -z "$(gh pr list --state open --search 'head:bump/wasm-tools-' --json number --jq '.[].number')" ]; then
             BRANCH="bump/wasm-tools-${LATEST}"
             git -C wasm-tools fetch --depth 1 origin tag "$LATEST"
             git -C wasm-tools checkout "$LATEST"
