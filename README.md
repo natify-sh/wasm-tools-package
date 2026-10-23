@@ -49,7 +49,7 @@ of [cibuildwheel](https://cibuildwheel.pypa.io):
 | Windows | x64, ARM64, x86 |
 | macOS | arm64, x86_64, universal2 |
 
-None of them needs QEMU: every architecture builds on a native runner or runs natively on it. See [CHANGELOG.md](CHANGELOG.md) for what each release has. There are no wheels for Android, iOS or
+None of them needs QEMU: every architecture builds on a native runner or runs natively on it. There are no wheels for Android, iOS or
 Pyodide: the tool runs on the machine that builds, and a package for those targets is built with the wheel of the host.
 Anywhere else the sdist builds the executable from source and needs Rust 1.88 or newer (`cargo`, e.g. from [rustup](https://rustup.rs))
 and network access to crates.io.

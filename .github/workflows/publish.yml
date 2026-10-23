@@ -221,25 +221,13 @@ jobs:
           echo "version=$VERSION"       >> $GITHUB_OUTPUT
           echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
 
-      - name: Extract changelog section
-        id: changelog
-        run: |
-          VERSION=${{ steps.meta.outputs.version }}
-          BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{found=0} /^\[[^]]*\]: /{found=0} found" CHANGELOG.md | sed '/^[[:space:]]*$/d' | head -50)
-          if [ -z "$BODY" ]; then
-            BODY="See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
-          fi
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Create GitHub Release
         if: ${{ github.event_name == 'push' }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.tag }}
-          body: ${{ steps.changelog.outputs.body }}
+          generate_release_notes: true
           prerelease: ${{ steps.meta.outputs.prerelease }}
           files: ./dist/*
 
