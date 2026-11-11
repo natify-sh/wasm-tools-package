@@ -93,6 +93,13 @@ test-command = "pytest {project}/tests"
 before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
 environment = { PATH = "$HOME/.cargo/bin:$PATH" }
 
+[[tool.cibuildwheel.overrides]]
+# Docker 29.4.2 (the ubuntu-26.04 runner image) denies socketcall in its default seccomp profile; 32-bit glibc
+# makes every socket call through it, so uv aborts with ENOSYS inside the i686 container (actions/runner-images#14790,
+# astral-sh/uv#23147). 29.4.3 reverts the deny. tests/test_ci_workarounds.py fails once the runner no longer needs this.
+select = "*-manylinux_i686"
+container-engine = { name = "docker", create-args = ["--security-opt", "seccomp=unconfined"] }
+
 [tool.cibuildwheel.macos]
 # 11.0 is the floor of arm64 macOS; x86_64 is built on its own runner (plus a universal2 wheel from the arm64 runner).
 environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
